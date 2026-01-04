@@ -1,0 +1,245 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Financeiro Pro - Cloud</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        :root { --primary: #2563eb; --success: #16a34a; --danger: #dc2626; --info: #0ea5e9; --bg: #f8fafc; }
+        body { font-family: 'Segoe UI', sans-serif; background: var(--bg); margin: 0; padding: 0; }
+        
+        /* Telas */
+        .page { display: none; padding: 20px; }
+        .active { display: block; }
+
+        /* Estilo Login */
+        .auth-container { max-width: 400px; margin: 100px auto; background: white; padding: 30px; border-radius: 12px; box-shadow: 0 10px 25px rgba(0,0,0,0.1); text-align: center; }
+        .auth-container input { width: 100%; padding: 12px; margin: 10px 0; border: 1px solid #ddd; border-radius: 8px; box-sizing: border-box; }
+        .auth-container button { width: 100%; padding: 12px; background: var(--primary); color: white; border: none; border-radius: 8px; cursor: pointer; font-weight: bold; margin-top: 10px; }
+
+        /* Dashboard (Reutilizando seu estilo anterior) */
+        .container { max-width: 1100px; margin: auto; background: white; padding: 20px; border-radius: 16px; }
+        .header-dash { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
+        .summary { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px; margin-bottom: 25px; }
+        .card { padding: 20px; border-radius: 12px; color: white; text-align: center; }
+        .controls { display: flex; flex-wrap: wrap; gap: 12px; background: #f1f5f9; padding: 20px; border-radius: 12px; margin-bottom: 20px; }
+        .input-group { flex: 1; min-width: 150px; display: flex; flex-direction: column; }
+        input, select { padding: 10px; border-radius: 6px; border: 1px solid #ccc; }
+        .charts-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 20px; margin-bottom: 20px; }
+        .chart-box { background: white; border: 1px solid #ddd; padding: 15px; border-radius: 12px; height: 300px; }
+        table { width: 100%; border-collapse: collapse; }
+        th, td { padding: 12px; border-bottom: 1px solid #eee; text-align: left; }
+        .btn-status { border: none; padding: 5px 10px; border-radius: 4px; cursor: pointer; font-weight: bold; }
+    </style>
+</head>
+<body>
+
+    <div id="loginPage" class="page active">
+        <div class="auth-container">
+            <h2>Financeiro Cloud</h2>
+            <p>Entre com seus dados para acessar</p>
+            <input type="email" id="email" placeholder="E-mail">
+            <input type="password" id="senha" placeholder="Senha">
+            <button onclick="handleLogin()">Entrar</button>
+            <button onclick="handleSignup()" style="background: #64748b;">Criar Nova Conta</button>
+            <p id="authError" style="color: red; font-size: 12px;"></p>
+        </div>
+    </div>
+
+    <div id="dashPage" class="page">
+        <div class="container">
+            <div class="header-dash">
+                <h1>Meu Dashboard</h1>
+                <button onclick="handleLogout()" style="background:#ef4444; color:white; border:none; padding:8px 15px; border-radius:6px; cursor:pointer;">Sair</button>
+            </div>
+
+            <div style="text-align: center; margin-bottom: 20px;">
+                <input type="month" id="filtroMes" onchange="renderizar()">
+            </div>
+
+            <div class="summary">
+                <div class="card" style="background:var(--success)">Saldo Real: <br><span id="saldo-carteira" style="font-size:1.4rem">R$ 0,00</span></div>
+                <div id="card-pendente" class="card">Pendências: <br><span id="saldo-previsao" style="font-size:1.4rem">R$ 0,00</span></div>
+                <div class="card" style="background:#334155">Projeção: <br><span id="saldo-projetado" style="font-size:1.4rem">R$ 0,00</span></div>
+            </div>
+
+            <div class="controls">
+                <div class="input-group" style="flex:2">
+                    <label>Descrição</label>
+                    <input type="text" id="desc" placeholder="Ex: Salário">
+                </div>
+                <div class="input-group">
+                    <label>Valor R$</label>
+                    <input type="number" id="valor" step="0.01">
+                </div>
+                <div class="input-group">
+                    <label>Data</label>
+                    <input type="date" id="data">
+                </div>
+                <div class="input-group">
+                    <label>Tipo</label>
+                    <select id="tipo">
+                        <option value="faturamento">Faturamento</option>
+                        <option value="custo">Custo</option>
+                    </select>
+                </div>
+                <button onclick="adicionarRegistro()" style="background:var(--primary); color:white; border:none; border-radius:8px; padding:0 20px; height:42px; align-self:flex-end; cursor:pointer">Salvar</button>
+            </div>
+
+            <div class="charts-grid">
+                <div class="chart-box"><canvas id="graficoEfetivado"></canvas></div>
+                <div class="chart-box"><canvas id="graficoPendente"></canvas></div>
+            </div>
+
+            <div style="overflow-x:auto">
+                <table>
+                    <thead><tr><th>Data</th><th>Descrição</th><th>Valor</th><th>Status</th><th>Ações</th></tr></thead>
+                    <tbody id="tabelaCorpo"></tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
+        import { getAuth, signInWithEmailAndPassword, createUserWithEmailAndPassword, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js";
+        import { getFirestore, collection, addDoc, onSnapshot, query, where, doc, updateDoc, deleteDoc } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
+
+        // CONFIGURAÇÃO DO FIREBASE (COLE AQUI O SEU CÓDIGO DO CONSOLE)
+const firebaseConfig = {
+    apiKey: "AIzaSyB8QHA4Iq8azag9CfRGKD__KxivSUJjjEs",
+    authDomain: "meufinanceiro-196d7.firebaseapp.com",
+    projectId: "meufinanceiro-196d7",
+    storageBucket: "meufinanceiro-196d7.firebasestorage.app",
+    messagingSenderId: "96722970614",
+    appId: "1:96722970614:web:05a6daf8fa0de11098c9d7"
+};
+
+        const app = initializeApp(firebaseConfig);
+        const auth = getAuth(app);
+        const db = getFirestore(app);
+        let userAtual = null;
+        let chart1, chart2;
+
+        // --- AUTH LÓGICA ---
+        window.handleLogin = () => {
+            const e = document.getElementById('email').value;
+            const s = document.getElementById('senha').value;
+            signInWithEmailAndPassword(auth, e, s).catch(err => document.getElementById('authError').innerText = "Erro: " + err.message);
+        };
+
+        window.handleSignup = () => {
+            const e = document.getElementById('email').value;
+            const s = document.getElementById('senha').value;
+            createUserWithEmailAndPassword(auth, e, s).catch(err => document.getElementById('authError').innerText = "Erro ao criar conta: " + err.message);
+        };
+
+        window.handleLogout = () => signOut(auth);
+
+        onAuthStateChanged(auth, (user) => {
+            if (user) {
+                userAtual = user;
+                document.getElementById('loginPage').classList.remove('active');
+                document.getElementById('dashPage').classList.add('active');
+                iniciarEscutaDados();
+            } else {
+                userAtual = null;
+                document.getElementById('loginPage').classList.add('active');
+                document.getElementById('dashPage').classList.remove('active');
+            }
+        });
+
+        // --- DADOS LÓGICA ---
+        function iniciarEscutaDados() {
+            const q = query(collection(db, "financas"), where("userId", "==", userAtual.uid));
+            onSnapshot(q, (snapshot) => {
+                const dados = [];
+                snapshot.forEach(doc => dados.push({ id: doc.id, ...doc.data() }));
+                renderizar(dados);
+            });
+        }
+
+        window.adicionarRegistro = async () => {
+            const desc = document.getElementById('desc').value;
+            const valor = parseFloat(document.getElementById('valor').value);
+            const data = document.getElementById('data').value;
+            const tipo = document.getElementById('tipo').value;
+            
+            if(!desc || !valor || !data) return alert("Preencha tudo!");
+
+            await addDoc(collection(db, "financas"), {
+                userId: userAtual.uid,
+                desc, valor, data, tipo, confirmado: false
+            });
+            document.getElementById('desc').value = '';
+            document.getElementById('valor').value = '';
+        };
+
+        window.toggleStatus = async (id, statusAtual) => {
+            await updateDoc(doc(db, "financas", id), { confirmado: !statusAtual });
+        };
+
+        window.deletar = async (id) => {
+            if(confirm("Excluir?")) await deleteDoc(doc(db, "financas", id));
+        };
+
+        // --- RENDERIZAÇÃO ---
+        window.renderizar = (dados = null) => {
+            // Se dados não vier do snapshot, tenta pegar o que já está renderizado (para filtros)
+            if(!dados) return iniciarEscutaDados(); 
+
+            const mesSel = document.getElementById('filtroMes').value || new Date().toISOString().substring(0, 7);
+            const corpo = document.getElementById('tabelaCorpo');
+            corpo.innerHTML = '';
+            
+            let real = 0, pend = 0, totalFat = 0, totalCus = 0;
+            let dEf = { fat: [], cus: [] }, dPe = { fat: [], cus: [] };
+
+            dados.filter(r => r.data.substring(0, 7) === mesSel).forEach(r => {
+                const v = r.tipo === 'faturamento' ? r.valor : -r.valor;
+                if(r.confirmado) {
+                    real += v;
+                    r.tipo === 'faturamento' ? dEf.fat.push({x: r.desc, y: r.valor}) : dEf.cus.push({x: r.desc, y: r.valor});
+                } else {
+                    pend += v;
+                    r.tipo === 'faturamento' ? dPe.fat.push({x: r.desc, y: r.valor}) : dPe.cus.push({x: r.desc, y: r.valor});
+                }
+                
+                corpo.innerHTML += `
+                    <tr>
+                        <td>${r.data}</td>
+                        <td>${r.desc}</td>
+                        <td style="color:${r.tipo==='faturamento'?'green':'red'}">R$ ${r.valor.toFixed(2)}</td>
+                        <td><button class="btn-status ${r.confirmado?'':'conf-nao'}" onclick="toggleStatus('${r.id}', ${r.confirmado})" style="background:${r.confirmado?'#dcfce7':'#fee2e2'}">${r.confirmado?'✅':'⏳'}</button></td>
+                        <td><button onclick="deletar('${r.id}')">🗑️</button></td>
+                    </tr>`;
+            });
+
+            document.getElementById('saldo-carteira').innerText = `R$ ${real.toFixed(2)}`;
+            document.getElementById('saldo-previsao').innerText = `R$ ${pend.toFixed(2)}`;
+            document.getElementById('saldo-projetado').innerText = `R$ ${(real+pend).toFixed(2)}`;
+            document.getElementById('card-pendente').style.background = pend >= 0 ? 'var(--info)' : 'var(--danger)';
+            
+            atualizarGraficos(dEf, dPe);
+        };
+
+        function atualizarGraficos(ef, pe) {
+            const config = (title, data) => ({
+                type: 'bar',
+                data: { datasets: [{label: 'Faturamento', data: data.fat, backgroundColor: '#16a34a'}, {label: 'Custos', data: data.cus, backgroundColor: '#dc2626'}] },
+                options: { responsive: true, maintainAspectRatio: false, plugins: { title: { display: true, text: title }, tooltip: { callbacks: { label: (c) => c.raw.x + ": R$ " + c.raw.y } } }, scales: { x: { stacked: true, display: false }, y: { stacked: true } } }
+            });
+
+            if(chart1) chart1.destroy();
+            if(chart2) chart2.destroy();
+            chart1 = new Chart(document.getElementById('graficoEfetivado'), config('Efetivados (Já pagos/recebidos)', ef));
+            chart2 = new Chart(document.getElementById('graficoPendente'), config('Pendentes (No Radar)', pe));
+        }
+
+        // Init data filtro
+        document.getElementById('filtroMes').value = new Date().toISOString().substring(0, 7);
+        document.getElementById('data').value = new Date().toISOString().substring(0, 10);
+    </script>
+</body>
+</html>
